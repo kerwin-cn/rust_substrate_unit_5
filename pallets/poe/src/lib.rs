@@ -12,7 +12,7 @@ pub mod pallet {
         Blake2_128Concat,
     };
     use frame_system::pallet_prelude::*;
-	use sp_std::vec::Vec;
+    use sp_std::vec::Vec;
 
     /// Configure the pallet by specifying the parameters and types on which it depends.
     #[pallet::config]
@@ -44,6 +44,7 @@ pub mod pallet {
         /// parameters. [something, who]
         ClaimCreated(T::AccountId, Vec<u8>),
         ClaimRemoved(T::AccountId, Vec<u8>),
+        ClaimOwnerChanged(T::AccountId, T::AccountId, Vec<u8>),
     }
 
     // Errors inform users that something went wrong.
@@ -55,6 +56,9 @@ pub mod pallet {
         ErrorForCreateClaimProofAlreadyExist,
         ErrorForRemoveClaimClaimNotExist,
         ErrorForRemoveClaimUnauthorized,
+
+        ErrorForTransferClaimClaimNotExist,
+        ErrorForTransferClaimUnauthorized,
     }
 
     #[pallet::hooks]
@@ -95,20 +99,45 @@ pub mod pallet {
             // Check that the extrinsic was signed and get the signer.
             // This function will return an error if the extrinsic is not signed.
             // https://substrate.dev/docs/en/knowledgebase/runtime/origin
-            let creator = ensure_signed(origin)?;
+            let sender = ensure_signed(origin)?;
 
             let (owner, _) =
                 Proofs::<T>::get(&claim).ok_or(Error::<T>::ErrorForRemoveClaimClaimNotExist)?;
 
-            ensure!(
-                creator == owner,
-                Error::<T>::ErrorForRemoveClaimUnauthorized
-            );
+            ensure!(sender == owner, Error::<T>::ErrorForRemoveClaimUnauthorized);
             // Update storage.
             Proofs::<T>::remove(&claim);
 
             // Emit an event.
-            Self::deposit_event(Event::ClaimRemoved(creator, claim));
+            Self::deposit_event(Event::ClaimRemoved(sender, claim));
+
+            // Return a successful DispatchResultWithPostInfo
+            Ok(().into())
+        }
+
+        #[pallet::weight(10_000)]
+        pub fn transfer_claim(
+            origin: OriginFor<T>,
+            claim: Vec<u8>,
+            new_owner: T::AccountId,
+        ) -> DispatchResultWithPostInfo {
+            // Check that the extrinsic was signed and get the signer.
+            // This function will return an error if the extrinsic is not signed.
+            // https://substrate.dev/docs/en/knowledgebase/runtime/origin
+            let sender = ensure_signed(origin)?;
+
+            let (owner, old_block_number) =
+                Proofs::<T>::get(&claim).ok_or(Error::<T>::ErrorForTransferClaimClaimNotExist)?;
+
+            ensure!(
+                sender == owner,
+                Error::<T>::ErrorForTransferClaimUnauthorized
+            );
+            // Update storage.
+            Proofs::<T>::insert(&claim, (&new_owner, old_block_number));
+
+            // Emit an event.
+            Self::deposit_event(Event::ClaimOwnerChanged(owner, new_owner, claim));
 
             // Return a successful DispatchResultWithPostInfo
             Ok(().into())
